@@ -15,7 +15,8 @@ function rawFetch(url, token) {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'User-Agent': 'StudyFlow/1.2 (https://glittering-stardust-df4082.netlify.app)'
       }
     }, (res) => {
       let body = '';

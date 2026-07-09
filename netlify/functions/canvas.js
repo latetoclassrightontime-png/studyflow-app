@@ -10,7 +10,8 @@ function canvasFetch(urlString, path, token, redirectsLeft = 3) {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'User-Agent': 'StudyFlow/1.2 (https://glittering-stardust-df4082.netlify.app)'
       }
     }, (res) => {
       if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && redirectsLeft > 0) {
