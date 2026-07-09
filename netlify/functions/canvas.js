@@ -1,17 +1,26 @@
 const https = require('https');
 
-function canvasFetch(canvasUrl, path, token) {
+// Follows up to 3 redirects so csudh.instructure.com → canvas.csudh.edu works transparently
+function canvasFetch(urlString, path, token, redirectsLeft = 3) {
   return new Promise((resolve, reject) => {
-    const urlObj = new URL(canvasUrl);
+    const urlObj = new URL(path.startsWith('http') ? path : urlString + path);
     const req = https.request({
       hostname: urlObj.hostname,
-      path: path,
+      path: urlObj.pathname + urlObj.search,
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json'
       }
     }, (res) => {
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && redirectsLeft > 0) {
+        // Follow redirect, preserving auth header
+        const next = res.headers.location.startsWith('http')
+          ? res.headers.location
+          : urlObj.origin + res.headers.location;
+        resolve(canvasFetch(next, '', token, redirectsLeft - 1));
+        return;
+      }
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
@@ -19,6 +28,13 @@ function canvasFetch(canvasUrl, path, token) {
     req.on('error', reject);
     req.end();
   });
+}
+
+function parseError(body) {
+  try {
+    const j = JSON.parse(body);
+    return j?.errors?.[0]?.message || j?.message || body.substring(0, 300);
+  } catch(e) { return body.substring(0, 300); }
 }
 
 const CORS = {
@@ -41,18 +57,35 @@ exports.handler = async function(event) {
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'canvasUrl and token are required' }) };
     }
 
-    // Fetch active courses
-    const coursesResult = await canvasFetch(canvasUrl, '/api/v1/courses?enrollment_state=active&per_page=20&include[]=term', token);
-    if (coursesResult.status !== 200) {
-      let canvasMessage = '';
-      try { canvasMessage = JSON.parse(coursesResult.body)?.errors?.[0]?.message || coursesResult.body.substring(0, 200); } catch(e) {}
+    // Normalize URL — strip trailing slash
+    const baseUrl = canvasUrl.replace(/\/$/, '');
+
+    // Step 1: Verify token works at all with the simplest endpoint
+    const selfResult = await canvasFetch(baseUrl, '/api/v1/users/self', token);
+    if (selfResult.status === 401) {
       return {
-        statusCode: coursesResult.status,
-        headers: CORS,
+        statusCode: 401, headers: CORS,
+        body: JSON.stringify({ error: 'Invalid API token. Go to Canvas → Account → Settings → New Access Token and generate a fresh one.' })
+      };
+    }
+    if (selfResult.status !== 200) {
+      return {
+        statusCode: selfResult.status, headers: CORS,
         body: JSON.stringify({
-          error: `Canvas returned ${coursesResult.status} on /courses — check your URL and token.`,
-          canvasResponse: canvasMessage,
-          debug: { endpoint: '/api/v1/courses', status: coursesResult.status }
+          error: `Canvas rejected the request (${selfResult.status}). Try using https://canvas.csudh.edu instead of csudh.instructure.com.`,
+          canvasResponse: parseError(selfResult.body)
+        })
+      };
+    }
+
+    // Step 2: Fetch active courses
+    const coursesResult = await canvasFetch(baseUrl, '/api/v1/courses?enrollment_state=active&per_page=30', token);
+    if (coursesResult.status !== 200) {
+      return {
+        statusCode: coursesResult.status, headers: CORS,
+        body: JSON.stringify({
+          error: `Could not fetch courses (${coursesResult.status}).`,
+          canvasResponse: parseError(coursesResult.body)
         })
       };
     }
@@ -60,23 +93,17 @@ exports.handler = async function(event) {
     const courses = JSON.parse(coursesResult.body);
     if (!Array.isArray(courses)) {
       return {
-        statusCode: 502,
-        headers: CORS,
+        statusCode: 502, headers: CORS,
         body: JSON.stringify({ error: 'Canvas returned unexpected data for /courses', canvasResponse: coursesResult.body.substring(0, 300) })
       };
     }
 
-    // Fetch assignments and self-submissions for each course in parallel
-    // NOTE: /students/submissions requires teacher role — use /self/enrollments + per-assignment submissions instead
+    // Step 3: Fetch assignments + self submissions per course
     const allAssigns = [];
     const allGrades = [];
-    const debugLog = [];
 
     await Promise.all(courses.map(async cc => {
-      // Assignments — works for enrolled students
-      const aResult = await canvasFetch(canvasUrl, `/api/v1/courses/${cc.id}/assignments?per_page=50&order_by=due_at`, token);
-      debugLog.push({ course: cc.name, courseId: cc.id, assignmentsStatus: aResult.status });
-
+      const aResult = await canvasFetch(baseUrl, `/api/v1/courses/${cc.id}/assignments?per_page=50&order_by=due_at`, token);
       if (aResult.status === 200) {
         const aList = JSON.parse(aResult.body);
         if (Array.isArray(aList)) {
@@ -84,10 +111,8 @@ exports.handler = async function(event) {
         }
       }
 
-      // Use the student-accessible submissions endpoint (self only)
-      const sResult = await canvasFetch(canvasUrl, `/api/v1/courses/${cc.id}/submissions/self?per_page=50`, token);
-      debugLog.push({ course: cc.name, submissionsStatus: sResult.status });
-
+      // /submissions/self works for students; skip gracefully if not supported
+      const sResult = await canvasFetch(baseUrl, `/api/v1/courses/${cc.id}/submissions/self?per_page=50`, token);
       if (sResult.status === 200) {
         const sList = JSON.parse(sResult.body);
         if (Array.isArray(sList)) {
@@ -98,20 +123,18 @@ exports.handler = async function(event) {
           });
         }
       }
-      // 404 on submissions/self is fine — some courses don't have submissions
     }));
 
     return {
       statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ courses, assignments: allAssigns, grades: allGrades, debug: debugLog })
+      body: JSON.stringify({ courses, assignments: allAssigns, grades: allGrades })
     };
 
   } catch (err) {
     return {
-      statusCode: 500,
-      headers: CORS,
-      body: JSON.stringify({ error: err.message, stack: err.stack })
+      statusCode: 500, headers: CORS,
+      body: JSON.stringify({ error: err.message })
     };
   }
 };
