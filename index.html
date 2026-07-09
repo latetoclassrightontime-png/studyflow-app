@@ -3888,10 +3888,12 @@ async function runSylImport(){
     const cid = 'c'+Date.now();
     courses.push({ id:cid, sid, name:c.name, code:c.code||'', credits:c.credits||3, days:Array.isArray(c.days)?c.days:[], start:c.start||'09:00', end:c.end||'09:50', room:c.room||'', color:PAL[Math.floor(Math.random()*PAL.length)], canvas:'', grade:0 });
 
+    const today = new Date(); today.setHours(0,0,0,0);
     let assignCount=0;
     if(Array.isArray(result.assignments)){
       result.assignments.forEach(a=>{
         if(!a.title||!a.due){ console.log('Skipping:',a); return; }
+        if(new Date(a.due) < today){ console.log('Skipping past due:',a.due,a.title); return; }
         assigns.push({ id:'a'+Date.now()+Math.random(), sid, cid, title:a.title, type:a.type||'Homework', due:a.due, dt:'23:59', hrs:a.type==='Exam'?4:a.type==='Essay'||a.type==='Project'?3:a.type==='Lab'?1.5:a.type==='Discussion'?1:2, wt:a.points||0, done:false });
         assignCount++;
       });
