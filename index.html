@@ -2464,12 +2464,22 @@ function _fallbackCopy(text){
 
 function exportToGCal(){
   const ics = buildICalFeed();
+  if(!ics){ toast('Add some assignments first!'); return; }
+
+  // iOS Capacitor: blob downloads silently fail — guide user to the web version instead
+  if(window.Capacitor?.isNativePlatform()){
+    toast('📅 Open studyflow on Safari, tap Google Calendar export, then import the downloaded file at calendar.google.com');
+    return;
+  }
+
+  // Web: download .ics and open Google Calendar import page
   const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
   const url  = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'StudyFlow.ics'; a.click();
-  URL.revokeObjectURL(url);
-  toast('📅 Downloaded! Import at calendar.google.com → Other calendars (+) → Import');
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  setTimeout(()=>window.open('https://calendar.google.com/calendar/r/settings/export', '_blank'), 800);
+  toast('📅 File downloaded! Upload it in the Google Calendar tab that just opened.');
 }
 
 // ══════════════════════════════════════════════
