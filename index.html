@@ -3943,42 +3943,16 @@ async function doCanvasSync(){
   if(btn) btn.textContent = '⏳ Syncing…';
 
   try {
-    // Fetch all active courses from Canvas
-    const coursesResp = await fetch(
-      `${url}/api/v1/courses?enrollment_state=active&per_page=20`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if(!coursesResp.ok) throw new Error(`Canvas error ${coursesResp.status} — check your URL and token.`);
-    const canvasCourses = await coursesResp.json();
+    // Proxy Canvas API through Netlify function to avoid CORS
+    const proxyResp = await fetch('/.netlify/functions/canvas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ canvasUrl: url, token })
+    });
+    const proxyData = await proxyResp.json();
+    if(!proxyResp.ok) throw new Error(proxyData.error || `Canvas error ${proxyResp.status} — check your URL and token.`);
 
-    // Fetch assignments for each course in parallel
-    const allAssigns = [];
-    const allGrades = [];
-    await Promise.all(canvasCourses.map(async cc => {
-      // Assignments
-      const aResp = await fetch(
-        `${url}/api/v1/courses/${cc.id}/assignments?per_page=50&order_by=due_at`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if(aResp.ok){
-        const aList = await aResp.json();
-        aList.forEach(a => { if(a.due_at) allAssigns.push({...a, courseName: cc.name, courseId: cc.id}); });
-      }
-      // Submissions (for grade updates)
-      const sResp = await fetch(
-        `${url}/api/v1/courses/${cc.id}/students/submissions?include[]=assignment&per_page=50`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if(sResp.ok){
-        const sList = await sResp.json();
-        sList.forEach(s => {
-          if(s.score !== null && s.score !== undefined && s.graded_at){
-            allGrades.push({...s, courseName: cc.name});
-          }
-        });
-      }
-    }));
-
+    const { assignments: allAssigns, grades: allGrades } = proxyData;
     processCanvasSyncResults(allAssigns, allGrades);
     // Update last sync time
     canvasConfig.lastSync = new Date().toISOString();
