@@ -2402,16 +2402,64 @@ function renderSyncSettings(){
   // No login state needed — subscription URL approach
 }
 
+function buildICalFeed(){
+  const lines = [
+    'BEGIN:VCALENDAR','VERSION:2.0',
+    'PRODID:-//StudyFlow//StudyFlow Calendar//EN',
+    'CALSCALE:GREGORIAN','METHOD:PUBLISH',
+    'X-WR-CALNAME:StudyFlow',
+  ];
+  assigns.forEach(a => {
+    const c = courses.find(x => x.id === a.cid) || {};
+    const dateStr = (a.due||'').replace(/-/g,'');
+    if(!dateStr) return;
+    const timeStr = (a.dt||'23:59').replace(':','') + '00';
+    const endHour = String(parseInt(timeStr.substring(0,2))+1).padStart(2,'0');
+    const summary = (c.name ? '['+c.name+'] ' : '') + (a.title||'');
+    lines.push(
+      'BEGIN:VEVENT',
+      'UID:sf-'+a.id+'@studyflow',
+      'DTSTAMP:'+new Date().toISOString().replace(/[-:.]/g,'').substring(0,15)+'Z',
+      'DTSTART:'+dateStr+'T'+timeStr,
+      'DTEND:'+dateStr+'T'+endHour+timeStr.substring(2),
+      'SUMMARY:'+summary.replace(/,/g,'\\,'),
+      'END:VEVENT'
+    );
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
 function copyCalSubUrl(){
-  const ics = buildICalFeed();
-  const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
-  const url  = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'StudyFlow.ics'; a.click();
-  URL.revokeObjectURL(url);
+  if(!assigns.length){ toast('Add some assignments first!'); return; }
+  // Build event payload and encode as base64 for the Netlify ical function
+  const events = assigns.map(a => {
+    const c = courses.find(x => x.id === a.cid) || {};
+    return { id: a.id, title: a.title, due: a.due, dt: a.dt, type: a.type, courseName: c.name };
+  });
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify({ events }))));
+  const httpsUrl = 'https://glittering-stardust-df4082.netlify.app/.netlify/functions/ical?data=' + encoded;
+  const webcalUrl = httpsUrl.replace('https://', 'webcal://');
+
+  // Copy webcal URL to clipboard
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(webcalUrl).then(() => {
+      toast('📋 Copied! In iPhone Calendar → Add Account → Other → Add Subscribed Calendar → paste the link.');
+    }).catch(() => _fallbackCopy(webcalUrl));
+  } else {
+    _fallbackCopy(webcalUrl);
+  }
   const copiedEl = document.getElementById('icloud-copied');
   if(copiedEl){ copiedEl.style.display=''; setTimeout(()=>{ if(copiedEl) copiedEl.style.display='none'; },6000); }
-  toast('📥 Downloaded! Open on iPhone → tap StudyFlow.ics → it will import to Apple Calendar.');
+}
+
+function _fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand('copy'); toast('📋 Copied! Paste into iPhone Calendar → Add Subscribed Calendar.'); }
+  catch(e){ toast('Could not copy. URL: ' + text); }
+  document.body.removeChild(ta);
 }
 
 function exportToGCal(){
