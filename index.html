@@ -2991,7 +2991,7 @@ function openCourse(cid){
   document.getElementById('course-back').onclick=()=>openSem(c.sid);
   document.getElementById('course-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="width:44px;height:44px;border-radius:12px;background:${c.color}22;display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:20px;color:${c.color};flex-shrink:0">${CFG.showGPA?toL(c.grade):'★'}</div><div><div style="font-family:'Fraunces',serif;font-size:18px;font-weight:500">${c.name}</div><div style="font-size:12px;color:var(--ink3)">${c.code||''} · ${c.days.join(', ')} ${c.start}–${c.end}</div></div></div>
-    <div style="display:flex;gap:7px;margin-bottom:14px"><button class="btn bp bsm" style="background:${c.color}" onclick="prepAssign('${cid}');openMod('m-add-assign')">+ Assignment</button><button class="btn bo bsm" onclick="openColorEdit('${cid}')">🎨 Color</button></div>
+    <div style="display:flex;gap:7px;margin-bottom:14px"><button class="btn bp bsm" style="background:${c.color}" onclick="prepAssign('${cid}');openMod('m-add-assign')">+ Assignment</button><button class="btn bo bsm" onclick="openColorEdit('${cid}')">🎨 Color</button><button class="btn bo bsm" style="color:#DC2626;border-color:#DC262630" onclick="deleteCourse('${cid}')">🗑 Delete</button></div>
     <div class="sec">Assignments (${cas.length})</div>
     ${cas.length?cas.map(a=>aItemHtml(a)).join(''):`<div class="empty"><div class="ei">✅</div><p>No assignments yet</p></div>`}
     <div class="sec">Study Blocks (${cbs.length})</div>
@@ -3778,6 +3778,23 @@ function submitQuickAdd(){
 function addAssign(){const t=document.getElementById('na-t').value.trim(),cid=document.getElementById('na-c').value,due=document.getElementById('na-d').value;if(!t||!due){toast('Title and date required.');return;}const c=courses.find(x=>x.id===cid);assigns.push({id:'a'+Date.now(),sid:c?c.sid:activeSid,cid,title:t,type:document.getElementById('na-ty').value,due,dt:document.getElementById('na-tm').value||'23:59',hrs:parseFloat(document.getElementById('na-h').value)||2,wt:parseFloat(document.getElementById('na-w').value)||0,done:false});buildBlocks();closeAll();if(viewCid)openCourse(viewCid);else if(viewSid)openSem(viewSid);renderCal();renderHome();renderTAssigns();saveAll();toast('Added + study blocks scheduled!');}
 
 function openColorEdit(cid){const c=courses.find(x=>x.id===cid);pickedColor=c.color;const popup=document.createElement('div');popup.className='mbg on';popup.innerHTML=`<div class="modal"><div class="mh"></div><div class="mt">Color for ${c.name}</div><div class="cr" id="qpal" style="gap:8px;row-gap:8px">${PAL.map(col=>`<div class="cp-sw${col===c.color?' on':''}" style="background:${col}" onclick="qcPick('${cid}','${col}',this)"></div>`).join('')}</div><div class="cp-hr"><div class="cp-pv" id="qpv" style="background:${c.color}"></div><input class="fi" id="qhex" value="${c.color}" maxlength="7" style="flex:1" oninput="qcHex('${cid}')"></div><button class="btn bp" style="width:100%;margin-top:12px" onclick="this.closest('.mbg').remove()">Done</button></div>`;popup.onclick=e=>{if(e.target===popup)popup.remove();};document.body.appendChild(popup);}
+function deleteCourse(cid){
+  const c=courses.find(x=>x.id===cid);
+  if(!c) return;
+  const aCount=assigns.filter(a=>a.cid===cid).length;
+  const msg=aCount>0
+    ? `Delete "${c.name}" and its ${aCount} assignment${aCount!==1?'s':''}? This cannot be undone.`
+    : `Delete "${c.name}"? This cannot be undone.`;
+  if(!confirm(msg)) return;
+  const sid=c.sid;
+  courses=courses.filter(x=>x.id!==cid);
+  assigns=assigns.filter(a=>a.cid!==cid);
+  studyBlocks=studyBlocks.filter(b=>b.cid!==cid);
+  viewCid=null;
+  buildBlocks(); saveAll(); renderCal(); renderGrades(); renderHome(); renderTAssigns();
+  openSem(sid);
+  toast('Course deleted.');
+}
 function qcPick(cid,col,el){courses.find(x=>x.id===cid).color=col;document.querySelectorAll('#qpal .cp-sw').forEach(s=>s.classList.remove('on'));el.classList.add('on');document.getElementById('qpv').style.background=col;document.getElementById('qhex').value=col;buildBlocks();renderCal();renderGrades();if(viewCid===cid)openCourse(cid);else if(viewSid)openSem(viewSid);}
 function qcHex(cid){const v=document.getElementById('qhex').value;if(/^#[0-9A-Fa-f]{6}$/.test(v)){courses.find(x=>x.id===cid).color=v;document.getElementById('qpv').style.background=v;renderCal();renderGrades();if(viewCid===cid)openCourse(cid);}}
 
