@@ -1727,6 +1727,10 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 // ══════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════
+// Absolute base so Netlify functions work from iOS/Capacitor (relative URLs resolve to localhost there)
+const NETLIFY_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'https://glittering-stardust-df4082.netlify.app'
+  : window.location.origin;
 const PX_PER_MIN = 1.0;   // 60px per hour — matches .tg-row height:60px
 const SNAP = 15;           // snap to 15-minute intervals
 const DAY_START = 0;       // 12am (midnight)
@@ -3803,7 +3807,7 @@ async function runSylImport(){
     }
 
     // Call our Netlify proxy function (avoids CORS issues)
-    const response = await fetch('/.netlify/functions/syllabus', {
+    const response = await fetch(NETLIFY_BASE + '/.netlify/functions/syllabus', {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify(isPDFUpload ? { pdfBase64: sylFileData._base64 } : { text: textToUse })
@@ -3944,7 +3948,7 @@ async function doCanvasSync(){
 
   try {
     // Proxy Canvas API through Netlify function to avoid CORS
-    const proxyResp = await fetch('/.netlify/functions/canvas', {
+    const proxyResp = await fetch(NETLIFY_BASE + '/.netlify/functions/canvas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ canvasUrl: url, token })
